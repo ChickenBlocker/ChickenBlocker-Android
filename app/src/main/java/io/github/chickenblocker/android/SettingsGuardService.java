@@ -13,6 +13,7 @@ import android.os.Looper;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 
 import java.util.ArrayDeque;
 import java.util.HashSet;
@@ -26,6 +27,7 @@ public final class SettingsGuardService extends AccessibilityService {
     private static final String LAST_MATCH = "last_match";
     private static final long ACTION_DEBOUNCE_MILLIS = 750;
     private static final long CHANNEL_INSPECTION_DEBOUNCE_MILLIS = 250;
+    private static final long PERMANENT_GUARD_SWEEP_MILLIS = 1000;
     private static final Set<String> TELEGRAM_PACKAGES = Set.of(
             "org.telegram.messenger",
             "org.telegram.messenger.web",
@@ -37,20 +39,39 @@ public final class SettingsGuardService extends AccessibilityService {
     private long lastTelegramInspectionAt;
     private long lastTelegramBackAt;
     private long lastWebsiteBackAt;
+    private long lastPictureInPictureActionAt;
     private Set<String> browserPackages;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable browserExpiryCheck = this::enforceCurrentBlockedApp;
     private final Runnable settingsExpiryCheck = this::inspectProtectedWindow;
+    private final Runnable settingsContentCheck = this::inspectProtectedWindow;
     private final Runnable telegramExpiryCheck = this::inspectTelegramChannelWindow;
+    private final Runnable permanentGuardSweep = new Runnable() {
+        @Override
+        public void run() {
+            inspectPictureInPictureWindows();
+            inspectProtectedWindow();
+            handler.postDelayed(this, PERMANENT_GUARD_SWEEP_MILLIS);
+        }
+    };
+
+    @Override
+    protected void onServiceConnected() {
+        handler.removeCallbacks(permanentGuardSweep);
+        handler.post(permanentGuardSweep);
+    }
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
+        handler.removeCallbacks(settingsContentCheck);
+        handler.postDelayed(settingsContentCheck, 300);
         if (event.getPackageName() == null) {
             return;
         }
         String packageName = event.getPackageName().toString();
         handler.removeCallbacks(browserExpiryCheck);
         handler.removeCallbacks(telegramExpiryCheck);
+        inspectPictureInPictureWindows();
         String ruleMode = NativeBlockPolicy.modeForPackage(this, packageName);
         if (ruleMode != null) {
             long remaining = NativeBlockPolicy.remainingAccessMillis(this, ruleMode);
@@ -81,6 +102,9 @@ public final class SettingsGuardService extends AccessibilityService {
         }
 
         PageSnapshot page = PageSnapshot.from(root);
+        if (inspectPictureInPictureSettings(page)) {
+            return;
+        }
         if ((page.matchesAccessibilityPage("chickenblocker settings guard")
                 || page.matchesAccessibilityPage("chickenblocker blocker and settings guard"))
                 || page.matchesAppInfoPage("chickenblocker")
@@ -98,6 +122,59 @@ public final class SettingsGuardService extends AccessibilityService {
             }
             requestSettingsWait("ChickenBlocker protected settings");
         }
+    }
+
+    private boolean inspectPictureInPictureSettings(PageSnapshot page) {
+        for (String packageName : PictureInPictureGuard.installedProtectedPackages(this)) {
+            String appLabel = PictureInPictureGuard.appLabel(this, packageName);
+            if (!page.matchesPictureInPicturePage(packageName, appLabel)) {
+                continue;
+            }
+            if (page.hasCheckedSwitch()) {
+                return true;
+            }
+            if (page.hasUncheckedSwitch()) {
+                blockCurrentPage("picture-in-picture settings: " + appLabel);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void inspectPictureInPictureWindows() {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - lastPictureInPictureActionAt < ACTION_DEBOUNCE_MILLIS) {
+            return;
+        }
+        for (AccessibilityWindowInfo window : getWindows()) {
+            if (!window.isInPictureInPictureMode()) {
+                continue;
+            }
+            AccessibilityNodeInfo root = window.getRoot();
+            if (root == null || root.getPackageName() == null) {
+                continue;
+            }
+            String packageName = root.getPackageName().toString();
+            if (!PictureInPictureGuard.isProtectedPackage(this, packageName)) {
+                continue;
+            }
+            lastPictureInPictureActionAt = now;
+            preferences(this).edit()
+                    .putString(LAST_MATCH, "picture-in-picture: "
+                            + PictureInPictureGuard.appLabel(this, packageName))
+                    .apply();
+            root.performAction(AccessibilityNodeInfo.ACTION_DISMISS);
+            handler.postDelayed(() -> openPictureInPictureBlocked(packageName), 150);
+            return;
+        }
+    }
+
+    private void openPictureInPictureBlocked(String packageName) {
+        startActivity(new Intent(this, PictureInPictureBlockedActivity.class)
+                .putExtra(PictureInPictureBlockedActivity.EXTRA_TARGET_PACKAGE, packageName)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        | Intent.FLAG_ACTIVITY_SINGLE_TOP));
     }
 
     private void inspectTelegramChannelWindow() {
@@ -324,7 +401,9 @@ public final class SettingsGuardService extends AccessibilityService {
     public void onDestroy() {
         handler.removeCallbacks(browserExpiryCheck);
         handler.removeCallbacks(settingsExpiryCheck);
+        handler.removeCallbacks(settingsContentCheck);
         handler.removeCallbacks(telegramExpiryCheck);
+        handler.removeCallbacks(permanentGuardSweep);
         super.onDestroy();
     }
 
@@ -368,6 +447,8 @@ public final class SettingsGuardService extends AccessibilityService {
 
         private final Set<String> texts = new HashSet<>();
         private final Set<String> viewIds = new HashSet<>();
+        private boolean checkedSwitch;
+        private boolean uncheckedSwitch;
 
         static PageSnapshot from(AccessibilityNodeInfo root) {
             PageSnapshot snapshot = new PageSnapshot();
@@ -379,6 +460,15 @@ public final class SettingsGuardService extends AccessibilityService {
                 snapshot.addText(node.getContentDescription());
                 if (node.getViewIdResourceName() != null) {
                     snapshot.viewIds.add(node.getViewIdResourceName().toLowerCase(Locale.ROOT));
+                }
+                CharSequence className = node.getClassName();
+                if (node.isCheckable() && className != null
+                        && className.toString().toLowerCase(Locale.ROOT).contains("switch")) {
+                    if (node.isChecked()) {
+                        snapshot.checkedSwitch = true;
+                    } else {
+                        snapshot.uncheckedSwitch = true;
+                    }
                 }
                 for (int index = 0; index < node.getChildCount(); index++) {
                     AccessibilityNodeInfo child = node.getChild(index);
@@ -410,6 +500,40 @@ public final class SettingsGuardService extends AccessibilityService {
 
         boolean matchesTelegramChannelPage() {
             return hasSubscribersCount() || (hasText("gift") && hasText("search"));
+        }
+
+        boolean matchesPictureInPicturePage(String packageName, String appLabel) {
+            return matchesAppLabel(packageName, appLabel)
+                    && (hasTextContaining("picture-in-picture")
+                    || hasTextContaining("picture in picture"))
+                    && hasSwitch();
+        }
+
+        private boolean matchesAppLabel(String packageName, String appLabel) {
+            if ("org.videolan.vlc".equals(packageName) && hasTextContaining("vlc")) {
+                return true;
+            }
+            if (packageName.startsWith("org.telegram.") && hasTextContaining("telegram")) {
+                return true;
+            }
+            String expected = appLabel.trim().toLowerCase(Locale.ROOT);
+            for (String text : texts) {
+                if (text.length() >= 3
+                        && (text.equals(expected)
+                        || text.contains(expected)
+                        || expected.contains(text))) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        boolean hasCheckedSwitch() {
+            return checkedSwitch;
+        }
+
+        boolean hasUncheckedSwitch() {
+            return uncheckedSwitch;
         }
 
         private boolean hasSubscribersCount() {
@@ -444,6 +568,9 @@ public final class SettingsGuardService extends AccessibilityService {
         }
 
         private boolean hasSwitch() {
+            if (checkedSwitch || uncheckedSwitch) {
+                return true;
+            }
             for (String viewId : viewIds) {
                 if (viewId.endsWith(":id/switchwidget")
                         || viewId.endsWith(":id/switch_widget")
