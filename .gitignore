@@ -1,0 +1,6 @@
+.idea/
+build/
+.env
+.block-config.json
+debug.keystore
+*.iml

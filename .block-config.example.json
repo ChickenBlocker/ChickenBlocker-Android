@@ -1,0 +1,19 @@
+{
+  "browserPackages": [
+    "com.android.chrome",
+    "org.mozilla.firefox",
+    "com.vivaldi.browser",
+    "com.brave.browser",
+    "com.opera.mini.native",
+    "com.duckduckgo.mobile.android"
+  ],
+  "limitedAppPackages": [
+    "com.google.android.apps.youtube.music",
+    "com.android.vending",
+    "com.google.android.googlequicksearchbox",
+    "com.google.android.youtube",
+    "com.mkarpenko.worldbox"
+  ],
+  "strictAppPackages": [],
+  "blockedSites": []
+}

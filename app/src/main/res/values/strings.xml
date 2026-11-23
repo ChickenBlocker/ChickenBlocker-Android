@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ChickenBlocker</string>
+    <string name="admin_description">Enforces ChickenBlocker rules and protects them from ordinary Settings changes.</string>
+    <string name="guard_label">ChickenBlocker blocker and settings guard</string>
+    <string name="guard_description">Blocks configured apps and guards Settings pages that could disable ChickenBlocker.</string>
+</resources>
