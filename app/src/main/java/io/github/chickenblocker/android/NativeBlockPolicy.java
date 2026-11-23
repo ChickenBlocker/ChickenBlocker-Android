@@ -198,6 +198,10 @@ final class NativeBlockPolicy {
         return stored == null ? new HashSet<>() : new HashSet<>(stored);
     }
 
+    static Set<String> getPictureInPicturePackages(Context context) {
+        return new HashSet<>(defaultBlockConfig(context).pictureInPicturePackages);
+    }
+
     static void setBlockedSites(Context context, Set<String> sites) {
         preferences(context).edit()
                 .putStringSet(BLOCKED_SITES, new HashSet<>(sites))
@@ -513,6 +517,7 @@ final class NativeBlockPolicy {
             JSONObject root = new JSONObject(json.toString());
             defaultBlockConfig = new DefaultBlockConfig(
                     stringSet(root.getJSONArray("browserPackages")),
+                    stringSet(root.getJSONArray("pictureInPicturePackages")),
                     stringSet(root.getJSONArray("limitedAppPackages")),
                     stringSet(root.getJSONArray("strictAppPackages")),
                     stringSet(root.getJSONArray("blockedSites"))
@@ -536,17 +541,20 @@ final class NativeBlockPolicy {
 
     private static final class DefaultBlockConfig {
         private final Set<String> browserPackages;
+        private final Set<String> pictureInPicturePackages;
         private final Set<String> limitedAppPackages;
         private final Set<String> strictAppPackages;
         private final Set<String> blockedSites;
 
         private DefaultBlockConfig(
                 Set<String> browserPackages,
+                Set<String> pictureInPicturePackages,
                 Set<String> limitedAppPackages,
                 Set<String> strictAppPackages,
                 Set<String> blockedSites
         ) {
             this.browserPackages = browserPackages;
+            this.pictureInPicturePackages = pictureInPicturePackages;
             this.limitedAppPackages = limitedAppPackages;
             this.strictAppPackages = strictAppPackages;
             this.blockedSites = blockedSites;

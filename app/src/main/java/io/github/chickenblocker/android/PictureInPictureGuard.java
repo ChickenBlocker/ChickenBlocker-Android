@@ -13,13 +13,6 @@ import java.util.Set;
 final class PictureInPictureGuard {
     private static final String ACTION_PICTURE_IN_PICTURE_SETTINGS =
             "android.settings.PICTURE_IN_PICTURE_SETTINGS";
-    private static final Set<String> FIXED_PACKAGES = Set.of(
-            "org.telegram.messenger",
-            "org.telegram.messenger.web",
-            "org.telegram.messenger.wibble",
-            "org.videolan.vlc"
-    );
-
     private PictureInPictureGuard() {
     }
 
@@ -27,13 +20,14 @@ final class PictureInPictureGuard {
         if (packageName == null) {
             return false;
         }
-        return FIXED_PACKAGES.contains(packageName) || isBrowser(context, packageName);
+        return NativeBlockPolicy.getPictureInPicturePackages(context).contains(packageName)
+                || isBrowser(context, packageName);
     }
 
     static Set<String> installedProtectedPackages(Context context) {
         Set<String> packages = browserPackages(context);
         PackageManager packageManager = context.getPackageManager();
-        for (String packageName : FIXED_PACKAGES) {
+        for (String packageName : NativeBlockPolicy.getPictureInPicturePackages(context)) {
             try {
                 packageManager.getApplicationInfo(packageName, 0);
                 packages.add(packageName);

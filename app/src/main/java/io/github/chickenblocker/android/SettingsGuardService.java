@@ -127,7 +127,7 @@ public final class SettingsGuardService extends AccessibilityService {
     private boolean inspectPictureInPictureSettings(PageSnapshot page) {
         for (String packageName : PictureInPictureGuard.installedProtectedPackages(this)) {
             String appLabel = PictureInPictureGuard.appLabel(this, packageName);
-            if (!page.matchesPictureInPicturePage(packageName, appLabel)) {
+            if (!page.matchesPictureInPicturePage(appLabel)) {
                 continue;
             }
             if (page.hasCheckedSwitch()) {
@@ -502,20 +502,14 @@ public final class SettingsGuardService extends AccessibilityService {
             return hasSubscribersCount() || (hasText("gift") && hasText("search"));
         }
 
-        boolean matchesPictureInPicturePage(String packageName, String appLabel) {
-            return matchesAppLabel(packageName, appLabel)
+        boolean matchesPictureInPicturePage(String appLabel) {
+            return matchesAppLabel(appLabel)
                     && (hasTextContaining("picture-in-picture")
                     || hasTextContaining("picture in picture"))
                     && hasSwitch();
         }
 
-        private boolean matchesAppLabel(String packageName, String appLabel) {
-            if ("org.videolan.vlc".equals(packageName) && hasTextContaining("vlc")) {
-                return true;
-            }
-            if (packageName.startsWith("org.telegram.") && hasTextContaining("telegram")) {
-                return true;
-            }
+        private boolean matchesAppLabel(String appLabel) {
             String expected = appLabel.trim().toLowerCase(Locale.ROOT);
             for (String text : texts) {
                 if (text.length() >= 3

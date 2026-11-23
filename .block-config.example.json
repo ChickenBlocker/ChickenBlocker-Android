@@ -7,6 +7,12 @@
     "com.opera.mini.native",
     "com.duckduckgo.mobile.android"
   ],
+  "pictureInPicturePackages": [
+    "org.telegram.messenger",
+    "org.telegram.messenger.web",
+    "org.telegram.messenger.wibble",
+    "org.videolan.vlc"
+  ],
   "limitedAppPackages": [
     "com.google.android.apps.youtube.music",
     "com.android.vending",
