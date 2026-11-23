@@ -21,5 +21,15 @@
     "com.mkarpenko.worldbox"
   ],
   "strictAppPackages": [],
-  "blockedSites": []
+  "blockedSites": [],
+  "customRules": [
+    {
+      "title": "Example custom list",
+      "waitMinutes": 30,
+      "accessMinutes": 30,
+      "packages": [
+        "com.example.app"
+      ]
+    }
+  ]
 }

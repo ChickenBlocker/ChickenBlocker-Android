@@ -208,6 +208,45 @@ final class NativeBlockPolicy {
                 .apply();
     }
 
+    static String exportConfigJson(Context context) {
+        try {
+            JSONObject root = new JSONObject()
+                    .put("browserPackages", sortedJsonArray(getPackages(context, MODE_BROWSER)))
+                    .put("pictureInPicturePackages",
+                            sortedJsonArray(getPictureInPicturePackages(context)))
+                    .put("limitedAppPackages",
+                            sortedJsonArray(getPackages(context, MODE_LIMITED_APPS)))
+                    .put("strictAppPackages", sortedJsonArray(getPackages(context, MODE_STRICT)))
+                    .put("blockedSites", sortedJsonArray(getBlockedSites(context)));
+
+            JSONArray customRules = new JSONArray();
+            for (String mode : packageRuleModes(context)) {
+                if (!isCustomRule(mode)) {
+                    continue;
+                }
+                customRules.put(new JSONObject()
+                        .put("title", ruleTitle(context, mode))
+                        .put("waitMinutes", waitDurationMillis(context, mode) / MINUTE)
+                        .put("accessMinutes", accessDurationMillis(context, mode) / MINUTE)
+                        .put("packages", sortedJsonArray(getPackages(context, mode))));
+            }
+            root.put("customRules", customRules);
+            return root.toString(2) + "\n";
+        } catch (JSONException error) {
+            throw new IllegalStateException("Could not create block configuration", error);
+        }
+    }
+
+    private static JSONArray sortedJsonArray(Set<String> values) {
+        List<String> sorted = new ArrayList<>(values);
+        sorted.sort(String::compareToIgnoreCase);
+        JSONArray result = new JSONArray();
+        for (String value : sorted) {
+            result.put(value);
+        }
+        return result;
+    }
+
     static String normalizeSitePattern(String value) {
         String normalized = value.trim().toLowerCase(Locale.ROOT);
         if (normalized.isEmpty() || normalized.contains(" ")) {

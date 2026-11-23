@@ -3,6 +3,7 @@ package io.github.chickenblocker.android;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
@@ -12,9 +13,14 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+
 public final class MainActivity extends Activity {
     // Keep enabled during the feasibility spike. Set false for hardened releases.
     private static final boolean ALLOW_DEVICE_OWNER_REMOVAL = true;
+    private static final int CREATE_CONFIG_DOCUMENT = 1;
 
     private PolicyController controller;
     private LinearLayout content;
@@ -67,6 +73,16 @@ public final class MainActivity extends Activity {
         ));
         content.addView(accessibilitySettings);
 
+        Button export = button("Export block lists as JSON");
+        export.setOnClickListener(view -> startActivityForResult(
+                new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                        .addCategory(Intent.CATEGORY_OPENABLE)
+                        .setType("application/json")
+                        .putExtra(Intent.EXTRA_TITLE, "chickenblocker-block-config.json"),
+                CREATE_CONFIG_DOCUMENT
+        ));
+        content.addView(export);
+
         if (controller.isDeviceOwner()) {
             Button apply = button("Apply protection");
             apply.setOnClickListener(view -> {
@@ -101,6 +117,28 @@ public final class MainActivity extends Activity {
                 13, false, Ui.TEXT_SECONDARY);
         note.setPadding(0, Ui.dp(this, 24), 0, 0);
         content.addView(note);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != CREATE_CONFIG_DOCUMENT || resultCode != RESULT_OK || data == null) {
+            return;
+        }
+        Uri destination = data.getData();
+        if (destination == null) {
+            return;
+        }
+        try (OutputStream output = getContentResolver().openOutputStream(destination, "wt")) {
+            if (output == null) {
+                throw new IOException("The selected file could not be opened");
+            }
+            output.write(NativeBlockPolicy.exportConfigJson(this)
+                    .getBytes(StandardCharsets.UTF_8));
+            toast("Block lists exported");
+        } catch (IOException | RuntimeException error) {
+            showError(error);
+        }
     }
 
     private void addSection(String label, String value) {
