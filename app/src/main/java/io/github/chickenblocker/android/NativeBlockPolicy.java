@@ -31,12 +31,12 @@ final class NativeBlockPolicy {
     static final String MODE_SETTINGS = "settings";
     static final String MODE_TELEGRAM_CHANNELS = "telegram_channels";
     static final String MODE_WEBSITES = "websites";
-    private static final List<String> DEFAULT_MODES = List.of(
-            MODE_BROWSER,
-            MODE_LIMITED_APPS,
-            MODE_STRICT,
-            MODE_TELEGRAM_CHANNELS
-    );
+    static final String MODE_PICTURE_IN_PICTURE = "picture_in_picture";
+    private static final String TYPE_PACKAGES = "packages";
+    private static final String TYPE_TELEGRAM_CHANNELS = "telegram_channels";
+    private static final String TYPE_WEBSITES = "websites";
+    private static final String TYPE_SETTINGS = "settings";
+    private static final String TYPE_PICTURE_IN_PICTURE = "picture_in_picture";
 
     private static final long MINUTE = 60 * 1000L;
     private static final String PREFERENCES = "native_block_policy";
@@ -65,7 +65,9 @@ final class NativeBlockPolicy {
         List<String> modes = new ArrayList<>(packageRuleModes(context));
         modes.sort(Comparator.comparingLong(mode -> accessDurationMillis(context, mode)));
         for (String mode : modes) {
-            if (!isRulePaused(context, mode) && getPackages(context, mode).contains(packageName)) {
+            if (isDirectPackageRule(context, mode)
+                    && !isRulePaused(context, mode)
+                    && getPackages(context, mode).contains(packageName)) {
                 return mode;
             }
         }
@@ -75,13 +77,22 @@ final class NativeBlockPolicy {
     static List<String> packageRuleModes(Context context) {
         migrateBrowserPackagesIfNeeded(context);
         applyPendingRuleDeletions(context);
-        List<String> modes = new ArrayList<>(DEFAULT_MODES);
+        List<String> modes = new ArrayList<>();
+        for (RuleDefinition rule : defaultBlockConfig(context).rules) {
+            if (TYPE_PACKAGES.equals(rule.type) || TYPE_TELEGRAM_CHANNELS.equals(rule.type)) {
+                modes.add(rule.id);
+            }
+        }
         Set<String> custom = preferences(context).getStringSet(CUSTOM_RULE_IDS, Set.of());
         if (custom != null) {
             List<String> sorted = new ArrayList<>(custom);
             sorted.sort(Comparator.comparing(mode -> ruleTitle(context, mode),
                     String.CASE_INSENSITIVE_ORDER));
-            modes.addAll(sorted);
+            for (String mode : sorted) {
+                if (!modes.contains(mode)) {
+                    modes.add(mode);
+                }
+            }
         }
         return modes;
     }
@@ -90,8 +101,15 @@ final class NativeBlockPolicy {
         return packageRuleModes(context).contains(mode);
     }
 
-    static boolean isCustomRule(String mode) {
-        return mode != null && mode.startsWith("custom_");
+    static boolean isDirectPackageRule(Context context, String mode) {
+        RuleDefinition rule = configuredRule(context, mode);
+        return (rule != null && TYPE_PACKAGES.equals(rule.type)) || isCustomRule(context, mode);
+    }
+
+    static boolean isCustomRule(Context context, String mode) {
+        Set<String> custom = preferences(context).getStringSet(CUSTOM_RULE_IDS, Set.of());
+        return mode != null && configuredRule(context, mode) == null
+                && custom != null && custom.contains(mode);
     }
 
     static String createCustomRule(
@@ -117,7 +135,7 @@ final class NativeBlockPolicy {
     }
 
     static void scheduleRuleDeletion(Context context, String mode) {
-        if (!isCustomRule(mode)) {
+        if (!isCustomRule(context, mode)) {
             return;
         }
         Set<String> pending = pendingRuleDeletions(context);
@@ -192,14 +210,14 @@ final class NativeBlockPolicy {
     static Set<String> getBlockedSites(Context context) {
         SharedPreferences preferences = preferences(context);
         if (!preferences.contains(BLOCKED_SITES)) {
-            return new HashSet<>(defaultBlockConfig(context).blockedSites);
+            return new HashSet<>(configuredRule(context, MODE_WEBSITES).targets);
         }
         Set<String> stored = preferences.getStringSet(BLOCKED_SITES, Set.of());
         return stored == null ? new HashSet<>() : new HashSet<>(stored);
     }
 
     static Set<String> getPictureInPicturePackages(Context context) {
-        return new HashSet<>(defaultBlockConfig(context).pictureInPicturePackages);
+        return new HashSet<>(configuredRule(context, MODE_PICTURE_IN_PICTURE).targets);
     }
 
     static void setBlockedSites(Context context, Set<String> sites) {
@@ -210,31 +228,39 @@ final class NativeBlockPolicy {
 
     static String exportConfigJson(Context context) {
         try {
-            JSONObject root = new JSONObject()
-                    .put("browserPackages", sortedJsonArray(getPackages(context, MODE_BROWSER)))
-                    .put("pictureInPicturePackages",
-                            sortedJsonArray(getPictureInPicturePackages(context)))
-                    .put("limitedAppPackages",
-                            sortedJsonArray(getPackages(context, MODE_LIMITED_APPS)))
-                    .put("strictAppPackages", sortedJsonArray(getPackages(context, MODE_STRICT)))
-                    .put("blockedSites", sortedJsonArray(getBlockedSites(context)));
-
-            JSONArray customRules = new JSONArray();
-            for (String mode : packageRuleModes(context)) {
-                if (!isCustomRule(mode)) {
-                    continue;
-                }
-                customRules.put(new JSONObject()
-                        .put("title", ruleTitle(context, mode))
-                        .put("waitMinutes", waitDurationMillis(context, mode) / MINUTE)
-                        .put("accessMinutes", accessDurationMillis(context, mode) / MINUTE)
-                        .put("packages", sortedJsonArray(getPackages(context, mode))));
+            JSONArray rules = new JSONArray();
+            for (RuleDefinition configured : defaultBlockConfig(context).rules) {
+                rules.put(ruleJson(context, configured));
             }
-            root.put("customRules", customRules);
-            return root.toString(2) + "\n";
+            for (String mode : packageRuleModes(context)) {
+                if (isCustomRule(context, mode)) {
+                    rules.put(ruleJson(context, ruleDefinition(context, mode)));
+                }
+            }
+            return new JSONObject().put("rules", rules).toString(2) + "\n";
         } catch (JSONException error) {
             throw new IllegalStateException("Could not create block configuration", error);
         }
+    }
+
+    private static JSONObject ruleJson(Context context, RuleDefinition rule) throws JSONException {
+        JSONObject json = new JSONObject()
+                .put("id", rule.id)
+                .put("title", ruleTitle(context, rule.id))
+                .put("type", rule.type)
+                .put("waitMinutes", waitDurationMillis(context, rule.id) / MINUTE)
+                .put("accessMinutes", accessDurationMillis(context, rule.id) / MINUTE)
+                .put("maximumPauseMinutes",
+                        maximumPauseDurationMillis(context, rule.id) / MINUTE);
+        if (TYPE_WEBSITES.equals(rule.type)) {
+            json.put("sites", sortedJsonArray(getBlockedSites(context)));
+        } else if (TYPE_PACKAGES.equals(rule.type)
+                || TYPE_TELEGRAM_CHANNELS.equals(rule.type)) {
+            json.put("packages", sortedJsonArray(getPackages(context, rule.id)));
+        } else if (TYPE_PICTURE_IN_PICTURE.equals(rule.type)) {
+            json.put("packages", sortedJsonArray(getPictureInPicturePackages(context)));
+        }
+        return json;
     }
 
     private static JSONArray sortedJsonArray(Set<String> values) {
@@ -319,7 +345,7 @@ final class NativeBlockPolicy {
         }
         Set<String> limited = new HashSet<>(rawPackages(context, MODE_LIMITED_APPS));
         Set<String> browser = new HashSet<>(rawPackages(context, MODE_BROWSER));
-        for (String packageName : defaultPackages(context, MODE_BROWSER)) {
+        for (String packageName : defaultTargets(context, MODE_BROWSER)) {
             if (limited.remove(packageName)) {
                 browser.add(packageName);
             }
@@ -335,7 +361,7 @@ final class NativeBlockPolicy {
         SharedPreferences preferences = preferences(context);
         String key = PACKAGES_PREFIX + mode;
         if (!preferences.contains(key)) {
-            return new HashSet<>(defaultPackages(context, mode));
+            return new HashSet<>(defaultTargets(context, mode));
         }
         Set<String> stored = preferences.getStringSet(key, Set.of());
         return stored == null ? new HashSet<>() : new HashSet<>(stored);
@@ -408,79 +434,35 @@ final class NativeBlockPolicy {
     }
 
     static String ruleTitle(Context context, String mode) {
-        if (MODE_BROWSER.equals(mode)) {
-            return "Browser access";
-        }
-        if (MODE_LIMITED_APPS.equals(mode)) {
-            return "No no apps";
-        }
-        if (MODE_STRICT.equals(mode)) {
-            return "No return apps";
-        }
-        if (MODE_SETTINGS.equals(mode)) {
-            return "Protected settings";
-        }
-        if (MODE_TELEGRAM_CHANNELS.equals(mode)) {
-            return "Telegram channels";
-        }
-        if (MODE_WEBSITES.equals(mode)) {
-            return "No no sites";
+        RuleDefinition configured = configuredRule(context, mode);
+        if (configured != null) {
+            return configured.title;
         }
         return preferences(context).getString(CUSTOM_TITLE_PREFIX + mode, "Custom rule");
     }
 
     static long waitDurationMillis(Context context, String mode) {
-        if (MODE_LIMITED_APPS.equals(mode)) {
-            return 30 * MINUTE;
-        }
-        if (MODE_STRICT.equals(mode)) {
-            return 0;
-        }
-        if (MODE_BROWSER.equals(mode)) {
-            return 40 * MINUTE;
-        }
-        if (MODE_TELEGRAM_CHANNELS.equals(mode)) {
-            return 60 * MINUTE;
-        }
-        if (MODE_SETTINGS.equals(mode)) {
-            return 30 * MINUTE;
+        RuleDefinition configured = configuredRule(context, mode);
+        if (configured != null) {
+            return configured.waitMinutes * MINUTE;
         }
         return preferences(context).getLong(CUSTOM_WAIT_PREFIX + mode, 30 * MINUTE);
     }
 
     static long accessDurationMillis(Context context, String mode) {
-        if (MODE_BROWSER.equals(mode)) {
-            return 30 * MINUTE;
-        }
-        if (MODE_LIMITED_APPS.equals(mode)) {
-            return 10 * MINUTE;
-        }
-        if (MODE_SETTINGS.equals(mode)) {
-            return 10 * MINUTE;
-        }
-        if (MODE_TELEGRAM_CHANNELS.equals(mode)) {
-            return 10 * MINUTE;
-        }
-        if (MODE_STRICT.equals(mode)) {
-            return 0;
+        RuleDefinition configured = configuredRule(context, mode);
+        if (configured != null) {
+            return configured.accessMinutes * MINUTE;
         }
         return preferences(context).getLong(CUSTOM_ACCESS_PREFIX + mode, 0);
     }
 
     static long maximumPauseDurationMillis(Context context, String mode) {
-        if (MODE_BROWSER.equals(mode)) {
-            return 30 * MINUTE;
+        RuleDefinition configured = configuredRule(context, mode);
+        if (configured != null) {
+            return configured.maximumPauseMinutes * MINUTE;
         }
-        if (MODE_LIMITED_APPS.equals(mode)) {
-            return 5 * MINUTE;
-        }
-        if (MODE_SETTINGS.equals(mode)) {
-            return 10 * MINUTE;
-        }
-        if (MODE_TELEGRAM_CHANNELS.equals(mode)) {
-            return 10 * MINUTE;
-        }
-        return isCustomRule(mode) ? accessDurationMillis(context, mode) : 0;
+        return isCustomRule(context, mode) ? accessDurationMillis(context, mode) : 0;
     }
 
     static boolean hasSettingsAccess(Context context) {
@@ -526,18 +508,36 @@ final class NativeBlockPolicy {
         return "Unlocked for about " + minutes + " minutes";
     }
 
-    private static Set<String> defaultPackages(Context context, String mode) {
-        DefaultBlockConfig config = defaultBlockConfig(context);
-        if (MODE_BROWSER.equals(mode)) {
-            return config.browserPackages;
+    private static Set<String> defaultTargets(Context context, String mode) {
+        RuleDefinition rule = configuredRule(context, mode);
+        return rule == null ? Set.of() : rule.targets;
+    }
+
+    private static RuleDefinition configuredRule(Context context, String mode) {
+        for (RuleDefinition rule : defaultBlockConfig(context).rules) {
+            if (rule.id.equals(mode)) {
+                return rule;
+            }
         }
-        if (MODE_LIMITED_APPS.equals(mode)) {
-            return config.limitedAppPackages;
+        return null;
+    }
+
+    private static RuleDefinition ruleDefinition(Context context, String mode) {
+        RuleDefinition configured = configuredRule(context, mode);
+        if (configured != null) {
+            return configured;
         }
-        if (MODE_STRICT.equals(mode)) {
-            return config.strictAppPackages;
-        }
-        return Set.of();
+        long waitMinutes = preferences(context).getLong(CUSTOM_WAIT_PREFIX + mode, 0) / MINUTE;
+        long accessMinutes = preferences(context).getLong(CUSTOM_ACCESS_PREFIX + mode, 0) / MINUTE;
+        return new RuleDefinition(
+                mode,
+                ruleTitle(context, mode),
+                TYPE_PACKAGES,
+                waitMinutes,
+                accessMinutes,
+                accessMinutes,
+                getPackages(context, mode)
+        );
     }
 
     private static synchronized DefaultBlockConfig defaultBlockConfig(Context context) {
@@ -554,13 +554,39 @@ final class NativeBlockPolicy {
                 json.append(line);
             }
             JSONObject root = new JSONObject(json.toString());
-            defaultBlockConfig = new DefaultBlockConfig(
-                    stringSet(root.getJSONArray("browserPackages")),
-                    stringSet(root.getJSONArray("pictureInPicturePackages")),
-                    stringSet(root.getJSONArray("limitedAppPackages")),
-                    stringSet(root.getJSONArray("strictAppPackages")),
-                    stringSet(root.getJSONArray("blockedSites"))
-            );
+            JSONArray values = root.getJSONArray("rules");
+            List<RuleDefinition> rules = new ArrayList<>();
+            Set<String> ids = new HashSet<>();
+            for (int index = 0; index < values.length(); index++) {
+                JSONObject value = values.getJSONObject(index);
+                String id = value.getString("id").trim();
+                String title = value.getString("title").trim();
+                String type = value.getString("type").trim();
+                if (id.isEmpty() || title.isEmpty() || !ids.add(id)) {
+                    throw new JSONException("Rule IDs and titles must be non-empty and unique");
+                }
+                JSONArray targetValues = TYPE_WEBSITES.equals(type)
+                        ? value.optJSONArray("sites") : value.optJSONArray("packages");
+                rules.add(new RuleDefinition(
+                        id,
+                        title,
+                        type,
+                        value.getLong("waitMinutes"),
+                        value.getLong("accessMinutes"),
+                        value.getLong("maximumPauseMinutes"),
+                        targetValues == null ? Set.of() : stringSet(targetValues)
+                ));
+            }
+            if (!ids.containsAll(Set.of(
+                    MODE_BROWSER,
+                    MODE_SETTINGS,
+                    MODE_TELEGRAM_CHANNELS,
+                    MODE_WEBSITES,
+                    MODE_PICTURE_IN_PICTURE
+            ))) {
+                throw new JSONException("Embedded configuration is missing a required rule");
+            }
+            defaultBlockConfig = new DefaultBlockConfig(rules);
             return defaultBlockConfig;
         } catch (IOException | JSONException error) {
             throw new IllegalStateException("Invalid embedded block configuration", error);
@@ -579,24 +605,38 @@ final class NativeBlockPolicy {
     }
 
     private static final class DefaultBlockConfig {
-        private final Set<String> browserPackages;
-        private final Set<String> pictureInPicturePackages;
-        private final Set<String> limitedAppPackages;
-        private final Set<String> strictAppPackages;
-        private final Set<String> blockedSites;
+        private final List<RuleDefinition> rules;
 
-        private DefaultBlockConfig(
-                Set<String> browserPackages,
-                Set<String> pictureInPicturePackages,
-                Set<String> limitedAppPackages,
-                Set<String> strictAppPackages,
-                Set<String> blockedSites
+        private DefaultBlockConfig(List<RuleDefinition> rules) {
+            this.rules = rules;
+        }
+    }
+
+    private static final class RuleDefinition {
+        private final String id;
+        private final String title;
+        private final String type;
+        private final long waitMinutes;
+        private final long accessMinutes;
+        private final long maximumPauseMinutes;
+        private final Set<String> targets;
+
+        private RuleDefinition(
+                String id,
+                String title,
+                String type,
+                long waitMinutes,
+                long accessMinutes,
+                long maximumPauseMinutes,
+                Set<String> targets
         ) {
-            this.browserPackages = browserPackages;
-            this.pictureInPicturePackages = pictureInPicturePackages;
-            this.limitedAppPackages = limitedAppPackages;
-            this.strictAppPackages = strictAppPackages;
-            this.blockedSites = blockedSites;
+            this.id = id;
+            this.title = title;
+            this.type = type;
+            this.waitMinutes = waitMinutes;
+            this.accessMinutes = accessMinutes;
+            this.maximumPauseMinutes = maximumPauseMinutes;
+            this.targets = targets;
         }
     }
 

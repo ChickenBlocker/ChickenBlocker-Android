@@ -1,32 +1,98 @@
 {
-  "browserPackages": [
-    "com.android.chrome",
-    "org.mozilla.firefox",
-    "com.vivaldi.browser",
-    "com.brave.browser",
-    "com.opera.mini.native",
-    "com.duckduckgo.mobile.android"
-  ],
-  "pictureInPicturePackages": [
-    "org.telegram.messenger",
-    "org.telegram.messenger.web",
-    "org.telegram.messenger.wibble",
-    "org.videolan.vlc"
-  ],
-  "limitedAppPackages": [
-    "com.google.android.apps.youtube.music",
-    "com.android.vending",
-    "com.google.android.googlequicksearchbox",
-    "com.google.android.youtube",
-    "com.mkarpenko.worldbox"
-  ],
-  "strictAppPackages": [],
-  "blockedSites": [],
-  "customRules": [
+  "rules": [
     {
+      "id": "browser",
+      "title": "Browser access",
+      "type": "packages",
+      "waitMinutes": 40,
+      "accessMinutes": 30,
+      "maximumPauseMinutes": 30,
+      "packages": [
+        "com.android.chrome",
+        "org.mozilla.firefox",
+        "com.vivaldi.browser",
+        "com.brave.browser",
+        "com.opera.mini.native",
+        "com.duckduckgo.mobile.android"
+      ]
+    },
+    {
+      "id": "limited_apps",
+      "title": "No no apps",
+      "type": "packages",
+      "waitMinutes": 30,
+      "accessMinutes": 10,
+      "maximumPauseMinutes": 5,
+      "packages": [
+        "com.google.android.apps.youtube.music",
+        "com.android.vending",
+        "com.google.android.googlequicksearchbox",
+        "com.google.android.youtube",
+        "com.mkarpenko.worldbox"
+      ]
+    },
+    {
+      "id": "strict",
+      "title": "No return apps",
+      "type": "packages",
+      "waitMinutes": 0,
+      "accessMinutes": 0,
+      "maximumPauseMinutes": 0,
+      "packages": []
+    },
+    {
+      "id": "telegram_channels",
+      "title": "Telegram channels",
+      "type": "telegram_channels",
+      "waitMinutes": 60,
+      "accessMinutes": 10,
+      "maximumPauseMinutes": 10,
+      "packages": [
+        "org.telegram.messenger",
+        "org.telegram.messenger.web",
+        "org.telegram.messenger.wibble"
+      ]
+    },
+    {
+      "id": "websites",
+      "title": "No no sites",
+      "type": "websites",
+      "waitMinutes": 30,
+      "accessMinutes": 0,
+      "maximumPauseMinutes": 0,
+      "sites": [
+        "reddit.com"
+      ]
+    },
+    {
+      "id": "settings",
+      "title": "Protected settings",
+      "type": "settings",
+      "waitMinutes": 30,
+      "accessMinutes": 10,
+      "maximumPauseMinutes": 10
+    },
+    {
+      "id": "picture_in_picture",
+      "title": "Picture-in-picture protection",
+      "type": "picture_in_picture",
+      "waitMinutes": 0,
+      "accessMinutes": 0,
+      "maximumPauseMinutes": 0,
+      "packages": [
+        "org.telegram.messenger",
+        "org.telegram.messenger.web",
+        "org.telegram.messenger.wibble",
+        "org.videolan.vlc"
+      ]
+    },
+    {
+      "id": "example_custom_list",
       "title": "Example custom list",
+      "type": "packages",
       "waitMinutes": 30,
       "accessMinutes": 30,
+      "maximumPauseMinutes": 30,
       "packages": [
         "com.example.app"
       ]

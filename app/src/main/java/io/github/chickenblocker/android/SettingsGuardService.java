@@ -28,12 +28,6 @@ public final class SettingsGuardService extends AccessibilityService {
     private static final long ACTION_DEBOUNCE_MILLIS = 750;
     private static final long CHANNEL_INSPECTION_DEBOUNCE_MILLIS = 250;
     private static final long PERMANENT_GUARD_SWEEP_MILLIS = 1000;
-    private static final Set<String> TELEGRAM_PACKAGES = Set.of(
-            "org.telegram.messenger",
-            "org.telegram.messenger.web",
-            "org.telegram.messenger.wibble"
-    );
-
     private long lastBackActionAt;
     private long lastBlockedAppActionAt;
     private long lastTelegramInspectionAt;
@@ -191,7 +185,8 @@ public final class SettingsGuardService extends AccessibilityService {
             return;
         }
         String rootPackage = root.getPackageName().toString();
-        if (!TELEGRAM_PACKAGES.contains(rootPackage)) {
+        if (!NativeBlockPolicy.getPackages(this, NativeBlockPolicy.MODE_TELEGRAM_CHANNELS)
+                .contains(rootPackage)) {
             return;
         }
         if (!PageSnapshot.from(root).matchesTelegramChannelPage()) {

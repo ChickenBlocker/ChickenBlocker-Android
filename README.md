@@ -59,7 +59,7 @@ cp .env.example .env
 cp .block-config.example.json .block-config.json
 ```
 
-Configure the private target arrays in `.block-config.json`, then set the required `.env` entries:
+Configure the unified rule list in `.block-config.json`, then set the required `.env` entries:
 
 ```dotenv
 JAVA_HOME=/path/to/jdk-21

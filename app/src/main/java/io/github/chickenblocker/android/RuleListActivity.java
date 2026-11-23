@@ -196,7 +196,7 @@ public final class RuleListActivity extends Activity {
         }
         content.addView(actions);
 
-        if (NativeBlockPolicy.isCustomRule(mode)) {
+        if (NativeBlockPolicy.isCustomRule(this, mode)) {
             boolean pendingDelete = NativeBlockPolicy.pendingRuleDeletions(this).contains(mode);
             Button delete = compactButton(pendingDelete
                     ? "Cancel deletion" : "Delete at 05:00");

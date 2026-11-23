@@ -238,6 +238,7 @@ public final class RuleAppPickerActivity extends Activity {
             NativeBlockPolicy.addPackage(this, mode, packageName);
             for (String otherMode : NativeBlockPolicy.packageRuleModes(this)) {
                 if (!otherMode.equals(mode)
+                        && NativeBlockPolicy.isDirectPackageRule(this, otherMode)
                         && NativeBlockPolicy.getPackages(this, otherMode).contains(packageName)) {
                     NativeBlockPolicy.schedulePackageRemoval(this, otherMode, packageName);
                 }
