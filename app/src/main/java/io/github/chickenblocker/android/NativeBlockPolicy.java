@@ -56,6 +56,8 @@ final class NativeBlockPolicy {
     private static final String PAUSED_UNTIL_PREFIX = "paused_until_";
     private static final String BLOCKED_SITES = "blocked_sites";
     private static final String BROWSER_MIGRATION_DONE = "browser_rule_migration_1";
+    private static final String FFUPDATER_MIGRATION_DONE = "ffupdater_rule_migration_1";
+    private static final String FFUPDATER_PACKAGE = "de.marmaro.krt.ffupdater";
     private static DefaultBlockConfig defaultBlockConfig;
 
     private NativeBlockPolicy() {
@@ -340,20 +342,29 @@ final class NativeBlockPolicy {
 
     private static void migrateBrowserPackagesIfNeeded(Context context) {
         SharedPreferences preferences = preferences(context);
-        if (preferences.getBoolean(BROWSER_MIGRATION_DONE, false)) {
+        if (!preferences.getBoolean(BROWSER_MIGRATION_DONE, false)) {
+            Set<String> limited = new HashSet<>(rawPackages(context, MODE_LIMITED_APPS));
+            Set<String> browser = new HashSet<>(rawPackages(context, MODE_BROWSER));
+            for (String packageName : defaultTargets(context, MODE_BROWSER)) {
+                if (limited.remove(packageName)) {
+                    browser.add(packageName);
+                }
+            }
+            preferences.edit()
+                    .putBoolean(BROWSER_MIGRATION_DONE, true)
+                    .putStringSet(PACKAGES_PREFIX + MODE_LIMITED_APPS, limited)
+                    .putStringSet(PACKAGES_PREFIX + MODE_BROWSER, browser)
+                    .apply();
+        }
+
+        if (preferences.getBoolean(FFUPDATER_MIGRATION_DONE, false)) {
             return;
         }
         Set<String> limited = new HashSet<>(rawPackages(context, MODE_LIMITED_APPS));
-        Set<String> browser = new HashSet<>(rawPackages(context, MODE_BROWSER));
-        for (String packageName : defaultTargets(context, MODE_BROWSER)) {
-            if (limited.remove(packageName)) {
-                browser.add(packageName);
-            }
-        }
+        limited.add(FFUPDATER_PACKAGE);
         preferences.edit()
-                .putBoolean(BROWSER_MIGRATION_DONE, true)
+                .putBoolean(FFUPDATER_MIGRATION_DONE, true)
                 .putStringSet(PACKAGES_PREFIX + MODE_LIMITED_APPS, limited)
-                .putStringSet(PACKAGES_PREFIX + MODE_BROWSER, browser)
                 .apply();
     }
 
