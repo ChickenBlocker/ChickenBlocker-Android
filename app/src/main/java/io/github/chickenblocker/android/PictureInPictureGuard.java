@@ -17,7 +17,7 @@ final class PictureInPictureGuard {
     }
 
     static boolean isProtectedPackage(Context context, String packageName) {
-        if (packageName == null) {
+        if (packageName == null || NativeBlockPolicy.isOneOffBypassActive(context)) {
             return false;
         }
         return NativeBlockPolicy.getPictureInPicturePackages(context).contains(packageName)

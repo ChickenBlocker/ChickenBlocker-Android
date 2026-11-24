@@ -1,4 +1,5 @@
 {
+  "bypasses": [],
   "rules": [
     {
       "id": "browser",

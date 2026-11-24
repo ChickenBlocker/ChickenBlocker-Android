@@ -79,13 +79,31 @@ public final class RuleListActivity extends Activity {
         content.addView(titleRow);
 
         boolean enabled = SettingsGuardService.isServiceEnabled(this);
+        String bypassStatus = NativeBlockPolicy.oneOffBypassStatus(this);
         TextView status = Ui.text(this,
-                enabled ? "Protection on" : "Protection off",
+                bypassStatus != null ? bypassStatus
+                        : enabled ? "Protection on" : "Protection off",
                 14,
                 true,
-                enabled ? Ui.STATUS_GOOD : Ui.STATUS_BAD
+                bypassStatus != null ? Ui.ACCENT : enabled ? Ui.STATUS_GOOD : Ui.STATUS_BAD
         );
         content.addView(status);
+
+        List<String> plannedBypasses = NativeBlockPolicy.upcomingOneOffBypasses(this);
+        if (!plannedBypasses.isEmpty()) {
+            TextView bypassHeading = Ui.text(
+                    this,
+                    "Planned bypasses",
+                    18,
+                    true,
+                    Ui.TEXT_PRIMARY
+            );
+            bypassHeading.setPadding(0, dp(20), 0, dp(4));
+            content.addView(bypassHeading);
+            for (String bypass : plannedBypasses) {
+                content.addView(Ui.text(this, bypass, 14, false, Ui.TEXT_SECONDARY));
+            }
+        }
 
         for (String mode : NativeBlockPolicy.packageRuleModes(this)) {
             addRule(mode);
@@ -121,27 +139,17 @@ public final class RuleListActivity extends Activity {
         content.addView(heading);
 
         long wait = NativeBlockPolicy.waitDurationMillis(this, mode) / 60_000;
-        long access = NativeBlockPolicy.accessDurationMillis(this, mode) / 60_000;
-        String timing = access == 0
+        long maximumPause = NativeBlockPolicy.maximumPauseDurationMillis(this, mode);
+        String timing = maximumPause == 0
                 ? "Always blocked"
-                : wait + " min wait · " + access + " min access";
+                : "Wait " + wait + "m | Pause <="
+                        + maximumPause / 60_000 + "m";
         if (NativeBlockPolicy.isRulePaused(this, mode)) {
             long remaining = NativeBlockPolicy.pausedUntilMillis(this, mode)
                     - System.currentTimeMillis();
             timing = "Paused, " + formatRemaining(remaining) + " left";
         }
         content.addView(Ui.text(this, timing, 14, false, Ui.TEXT_SECONDARY));
-        long maximumPause = NativeBlockPolicy.maximumPauseDurationMillis(this, mode);
-        if (maximumPause > 0 && !NativeBlockPolicy.isRulePaused(this, mode)) {
-            long pauseWait = NativeBlockPolicy.waitDurationMillis(this, mode) / 60_000;
-            content.addView(Ui.text(this,
-                    "Pausing: " + pauseWait + " min timer · up to "
-                            + formatPauseChoice(maximumPause),
-                    13,
-                    false,
-                    Ui.TEXT_SECONDARY
-            ));
-        }
 
         boolean telegramChannels = NativeBlockPolicy.MODE_TELEGRAM_CHANNELS.equals(mode);
         if (telegramChannels) {

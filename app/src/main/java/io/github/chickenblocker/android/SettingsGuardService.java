@@ -85,6 +85,9 @@ public final class SettingsGuardService extends AccessibilityService {
     }
 
     private void inspectProtectedWindow() {
+        if (NativeBlockPolicy.isOneOffBypassActive(this)) {
+            return;
+        }
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null || root.getPackageName() == null) {
             return;
@@ -172,7 +175,11 @@ public final class SettingsGuardService extends AccessibilityService {
     }
 
     private void inspectTelegramChannelWindow() {
-        if (NativeBlockPolicy.isRulePaused(this, NativeBlockPolicy.MODE_TELEGRAM_CHANNELS)) {
+        if (NativeBlockPolicy.isOneOffBypassActive(this)
+                || NativeBlockPolicy.isRulePaused(
+                        this,
+                        NativeBlockPolicy.MODE_TELEGRAM_CHANNELS
+                )) {
             return;
         }
         long now = android.os.SystemClock.elapsedRealtime();
@@ -365,6 +372,9 @@ public final class SettingsGuardService extends AccessibilityService {
     }
 
     private void openActiveWait(String mode, String targetPackage) {
+        if (NativeBlockPolicy.isOneOffBypassActive(this)) {
+            return;
+        }
         Intent intent = new Intent(this, ActiveWaitActivity.class)
                 .putExtra(ActiveWaitActivity.EXTRA_MODE, mode)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK

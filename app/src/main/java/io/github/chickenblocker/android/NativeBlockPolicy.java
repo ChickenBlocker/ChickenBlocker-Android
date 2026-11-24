@@ -18,7 +18,9 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -58,12 +60,20 @@ final class NativeBlockPolicy {
     private static final String BROWSER_MIGRATION_DONE = "browser_rule_migration_1";
     private static final String FFUPDATER_MIGRATION_DONE = "ffupdater_rule_migration_1";
     private static final String FFUPDATER_PACKAGE = "de.marmaro.krt.ffupdater";
+    private static final DateTimeFormatter BYPASS_DATE_TIME = DateTimeFormatter.ofPattern(
+            "EEE d MMM, HH:mm",
+            Locale.ENGLISH
+    );
+    private static final DateTimeFormatter BYPASS_TIME = DateTimeFormatter.ofPattern("HH:mm");
     private static DefaultBlockConfig defaultBlockConfig;
 
     private NativeBlockPolicy() {
     }
 
     static String modeForPackage(Context context, String packageName) {
+        if (isOneOffBypassActive(context)) {
+            return null;
+        }
         List<String> modes = new ArrayList<>(packageRuleModes(context));
         modes.sort(Comparator.comparingLong(mode -> accessDurationMillis(context, mode)));
         for (String mode : modes) {
@@ -295,6 +305,9 @@ final class NativeBlockPolicy {
     }
 
     static String blockedSiteForUrl(Context context, String value) {
+        if (isOneOffBypassActive(context)) {
+            return null;
+        }
         String candidate = value == null ? "" : value.trim();
         if (candidate.isEmpty() || candidate.contains(" ")) {
             return null;
@@ -477,7 +490,53 @@ final class NativeBlockPolicy {
     }
 
     static boolean hasSettingsAccess(Context context) {
-        return remainingAccessMillis(context, MODE_SETTINGS) > 0;
+        return isOneOffBypassActive(context) || remainingAccessMillis(context, MODE_SETTINGS) > 0;
+    }
+
+    static boolean isOneOffBypassActive(Context context) {
+        return activeBypass(context) != null;
+    }
+
+    static String oneOffBypassStatus(Context context) {
+        BypassDefinition bypass = activeBypass(context);
+        return bypass == null ? null : bypass.title + " active until "
+                + BYPASS_DATE_TIME.format(bypass.end);
+    }
+
+    static List<String> upcomingOneOffBypasses(Context context) {
+        LocalDateTime now = LocalDateTime.now();
+        List<String> bypasses = new ArrayList<>();
+        for (BypassDefinition bypass : defaultBlockConfig(context).bypasses) {
+            if (now.isBefore(bypass.end)) {
+                bypasses.add((isWithin(now, bypass.start, bypass.end) ? "Active: " : "")
+                        + bypass.title + ": " + formatBypassWindow(bypass));
+            }
+        }
+        return bypasses;
+    }
+
+    private static BypassDefinition activeBypass(Context context) {
+        LocalDateTime now = LocalDateTime.now();
+        for (BypassDefinition bypass : defaultBlockConfig(context).bypasses) {
+            if (isWithin(now, bypass.start, bypass.end)) {
+                return bypass;
+            }
+        }
+        return null;
+    }
+
+    private static String formatBypassWindow(BypassDefinition bypass) {
+        String end = bypass.start.toLocalDate().equals(bypass.end.toLocalDate())
+                ? BYPASS_TIME.format(bypass.end) : BYPASS_DATE_TIME.format(bypass.end);
+        return BYPASS_DATE_TIME.format(bypass.start) + " - " + end;
+    }
+
+    private static boolean isWithin(
+            LocalDateTime value,
+            LocalDateTime start,
+            LocalDateTime end
+    ) {
+        return !value.isBefore(start) && value.isBefore(end);
     }
 
     static boolean hasAccess(Context context, String mode) {
@@ -597,9 +656,23 @@ final class NativeBlockPolicy {
             ))) {
                 throw new JSONException("Embedded configuration is missing a required rule");
             }
-            defaultBlockConfig = new DefaultBlockConfig(rules);
+            List<BypassDefinition> bypasses = new ArrayList<>();
+            JSONArray bypassValues = root.optJSONArray("bypasses");
+            if (bypassValues != null) {
+                for (int index = 0; index < bypassValues.length(); index++) {
+                    JSONObject value = bypassValues.getJSONObject(index);
+                    String title = value.getString("title").trim();
+                    LocalDateTime start = LocalDateTime.parse(value.getString("start"));
+                    LocalDateTime end = LocalDateTime.parse(value.getString("end"));
+                    if (title.isEmpty() || !end.isAfter(start)) {
+                        throw new JSONException("Bypasses require a title and increasing times");
+                    }
+                    bypasses.add(new BypassDefinition(title, start, end));
+                }
+            }
+            defaultBlockConfig = new DefaultBlockConfig(rules, bypasses);
             return defaultBlockConfig;
-        } catch (IOException | JSONException error) {
+        } catch (IOException | JSONException | java.time.format.DateTimeParseException error) {
             throw new IllegalStateException("Invalid embedded block configuration", error);
         }
     }
@@ -617,9 +690,26 @@ final class NativeBlockPolicy {
 
     private static final class DefaultBlockConfig {
         private final List<RuleDefinition> rules;
+        private final List<BypassDefinition> bypasses;
 
-        private DefaultBlockConfig(List<RuleDefinition> rules) {
+        private DefaultBlockConfig(
+                List<RuleDefinition> rules,
+                List<BypassDefinition> bypasses
+        ) {
             this.rules = rules;
+            this.bypasses = bypasses;
+        }
+    }
+
+    private static final class BypassDefinition {
+        private final String title;
+        private final LocalDateTime start;
+        private final LocalDateTime end;
+
+        private BypassDefinition(String title, LocalDateTime start, LocalDateTime end) {
+            this.title = title;
+            this.start = start;
+            this.end = end;
         }
     }
 
