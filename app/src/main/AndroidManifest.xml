@@ -56,7 +56,8 @@
             android:name=".ActiveWaitActivity"
             android:excludeFromRecents="true"
             android:exported="false"
-            android:launchMode="singleTop" />
+            android:launchMode="singleTop"
+            android:taskAffinity="io.github.chickenblocker.android.blocked" />
 
         <activity
             android:name=".PictureInPictureBlockedActivity"
